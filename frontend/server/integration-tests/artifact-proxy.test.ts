@@ -54,10 +54,11 @@ describe('/artifacts/get namespaced proxy', () => {
       res.status(200).send(response);
     });
     artifactServerInUserNamespace = artifactService.listen(port);
+    const namespacedServiceGetterSpy = vi.fn(() => `http://localhost:${port}`);
     const getArtifactServiceGetterSpy = vi
       .spyOn(artifactsHandler, 'getArtifactServiceGetter')
-      .mockImplementation(() => () => `http://localhost:${port}`);
-    return { receivedUrls, getArtifactServiceGetterSpy, response };
+      .mockImplementation(() => namespacedServiceGetterSpy);
+    return { receivedUrls, getArtifactServiceGetterSpy, namespacedServiceGetterSpy, response };
   }
   afterEach(async () => {
     if (artifactServerInUserNamespace) {
@@ -81,7 +82,8 @@ describe('/artifacts/get namespaced proxy', () => {
   });
 
   it('proxies a request to namespaced artifact service', async () => {
-    const { receivedUrls, getArtifactServiceGetterSpy } = setUpNamespacedArtifactService({
+    const { receivedUrls, getArtifactServiceGetterSpy, namespacedServiceGetterSpy } =
+      setUpNamespacedArtifactService({
       namespace: 'ns2',
     });
     const configs = loadConfigs(argv, {
@@ -103,6 +105,7 @@ describe('/artifacts/get namespaced proxy', () => {
       servicePort: 80,
       enabled: true,
     });
+    expect(namespacedServiceGetterSpy).toHaveBeenCalledWith('ns2');
     expect(receivedUrls).toEqual(
       // url is the same, except namespace query is omitted
       ['/artifacts/get?source=minio&bucket=ml-pipeline&key=hello.txt'],
@@ -110,7 +113,8 @@ describe('/artifacts/get namespaced proxy', () => {
   });
 
   it('proxies a download request to namespaced artifact service', async () => {
-    const { receivedUrls, getArtifactServiceGetterSpy } = setUpNamespacedArtifactService({
+    const { receivedUrls, getArtifactServiceGetterSpy, namespacedServiceGetterSpy } =
+      setUpNamespacedArtifactService({
       namespace: 'ns2',
     });
     const configs = loadConfigs(argv, {
@@ -131,10 +135,47 @@ describe('/artifacts/get namespaced proxy', () => {
       servicePort: 80,
       enabled: true,
     });
+    expect(namespacedServiceGetterSpy).toHaveBeenCalledWith('ns2');
     expect(receivedUrls).toEqual(
       // url is the same, except namespace query is omitted
       ['/artifacts/minio/ml-pipeline/hello.txt'],
     );
+  });
+
+  it('rejects invalid namespace with dot and does not proxy', async () => {
+    const { receivedUrls, namespacedServiceGetterSpy } = setUpNamespacedArtifactService({});
+    const configs = loadConfigs(argv, {
+      ARTIFACTS_SERVICE_PROXY_ENABLED: 'true',
+    });
+    app = new UIServer(configs);
+    await requests(app.app)
+      .get(
+        `/artifacts/get${buildQuery({
+          ...commonParams,
+          namespace: 'team-a.ns2',
+        })}`,
+      )
+      .expect(500);
+    expect(namespacedServiceGetterSpy).not.toHaveBeenCalled();
+    expect(receivedUrls).toEqual([]);
+  });
+
+  it('rejects invalid namespace with uppercase and does not proxy', async () => {
+    const { receivedUrls, namespacedServiceGetterSpy } = setUpNamespacedArtifactService({});
+    const configs = loadConfigs(argv, {
+      ARTIFACTS_SERVICE_PROXY_ENABLED: 'true',
+    });
+    app = new UIServer(configs);
+    await requests(app.app)
+      .get(
+        `/artifacts/get${buildQuery({
+          ...commonParams,
+          namespace: 'Ns2',
+        })}`,
+      )
+      .expect(500);
+    expect(namespacedServiceGetterSpy).not.toHaveBeenCalled();
+    expect(receivedUrls).toEqual([]);
   });
 
   it('does not proxy requests without namespace argument', async () => {

@@ -461,6 +461,10 @@ export function getArtifactsProxyHandler({
           console.log(`namespace query param expected in ${req.url}.`);
           throw new Error(`namespace query param expected.`);
         }
+        if (!isAllowedResourceName(namespace)) {
+          console.log(`invalid namespace query param in ${req.url}.`);
+          throw new Error(`invalid namespace query param.`);
+        }
         const urlStr = namespacedServiceGetter(namespace!);
         if (!isAllowedDomain(urlStr, allowedDomain)) {
           console.log(`Domain is not allowed.`);
